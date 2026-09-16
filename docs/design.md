@@ -33,7 +33,7 @@ Adjacent, and not substitutes: `git-annex assistant` syncs through annex rather 
 
 - Config lists repositories, each with a debounce and a remote.
 - A change to a watched tree starts the debounce; further changes restart it, so a burst of writes lands as one commit.
-- `notify` cannot exclude a subtree from a recursive watch, so `.git` is watched like everything else and its events are discarded after the fact. The cost is a few hundred inotify watches per repository that exist only to be ignored.
+- `notify` cannot exclude a subtree from a recursive watch, so `.git` is watched like everything else and its events are discarded after the fact. The cost is a few hundred inotify watches per repository that exist only to be ignored. Access events are dropped too, wherever they happen: a sync pass reads every tracked file, and counting those reads as changes kept an idle repository running a no-op pass every debounce for ever.
 - The commit subject is `Update` followed by the changed paths joined with a comma and a space, and after three paths a count of the rest. Sentence case, so it reads like a hand-written subject in the log.
 - Push with bounded retry and exponential backoff. The three outcomes are distinct and handled separately: nothing to push, the push was rejected (needs a pull first), the remote was unreachable.
 - Only when retries are exhausted, or a rebase conflicts, does it open a GitHub issue, through the API with a token from the environment or `gh auth token` rather than by shelling out to `gh`, so the failure path does not depend on another binary. One open issue suppresses further ones, and closing it is what re-arms reporting.

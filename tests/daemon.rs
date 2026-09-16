@@ -91,6 +91,54 @@ fn one_unwatchable_repository_brings_the_daemon_down() {
     );
 }
 
+#[test]
+fn an_idle_repository_stops_passing() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    // One failing pass per wake, cheaply, and an open issue so the failures are
+    // never filed: what is being counted is the passes themselves.
+    fixture.git(&["commit", "--allow-empty", "-m", "by hand"]);
+    fixture.break_transport();
+    stub.report_open_issue(true);
+
+    let config = fixture.dir.path().join("config.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[github]\napi_url = \"{}\"\n\n[retry]\nattempts = 1\nbase = \"1ms\"\nmax = \"1ms\"\n\n[[repo]]\npath = \"{}\"\ndebounce = \"300ms\"\n",
+            stub.url,
+            fixture.work.display()
+        ),
+    )
+    .expect("config");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boswell"))
+        .arg("--config")
+        .arg(&config)
+        .env("GH_TOKEN", "test")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_CONFIG_GLOBAL", fixture.no_config_path())
+        .env("GIT_CONFIG_SYSTEM", fixture.no_config_path())
+        .env("RUST_LOG", "info")
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn boswell");
+    let lines = stderr_lines(&mut child);
+    let _running = Running(child);
+
+    assert!(
+        wait_for_line(&lines, "ERROR", Duration::from_secs(15)),
+        "the catch-up pass should have failed against the broken remote"
+    );
+    // That pass read every tracked file. If those reads counted as changes it
+    // would be followed by another pass a debounce later, and another after
+    // that, with nobody touching the tree.
+    assert!(
+        !wait_for_line(&lines, "ERROR", Duration::from_secs(2)),
+        "a pass ran again with nothing written to the tree"
+    );
+}
+
 fn stderr_lines(child: &mut Child) -> Receiver<String> {
     let stderr = child.stderr.take().expect("stderr");
     let (tx, rx) = channel();

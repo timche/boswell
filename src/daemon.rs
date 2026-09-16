@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
 use log::{info, warn};
-use notify::RecursiveMode;
+use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 
 use crate::config::{Config, Repo, Retry};
@@ -127,9 +127,14 @@ fn settle(rx: &Receiver<DebounceEventResult>, git_dir: &Path, debounce: Duration
 
 fn is_relevant(result: DebounceEventResult, git_dir: &Path) -> bool {
     match result {
-        Ok(events) => events
-            .iter()
-            .any(|event| event.paths.iter().any(|path| !under(path, git_dir))),
+        // A read is not a change, and every pass reads the whole tree: `git
+        // status` and `git add` open each tracked file, which inotify reports
+        // as an access. Counting those kept an idle repository running a
+        // no-op pass every debounce, for ever.
+        Ok(events) => events.iter().any(|event| {
+            !matches!(event.kind, EventKind::Access(_))
+                && event.paths.iter().any(|path| !under(path, git_dir))
+        }),
         Err(errors) => {
             for e in errors {
                 warn!("watcher: {e}");
@@ -141,4 +146,51 @@ fn is_relevant(result: DebounceEventResult, git_dir: &Path) -> bool {
 
 fn under(path: &Path, git_dir: &Path) -> bool {
     path.starts_with(git_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use notify::Event;
+    use notify::event::{AccessKind, AccessMode, ModifyKind};
+    use notify_debouncer_full::DebouncedEvent;
+
+    use super::*;
+
+    fn seen(kind: EventKind, path: &str) -> DebounceEventResult {
+        let event = Event::new(kind).add_path(PathBuf::from(path));
+        Ok(vec![DebouncedEvent::new(event, Instant::now())])
+    }
+
+    fn git_dir() -> PathBuf {
+        PathBuf::from("/repo/.git")
+    }
+
+    #[test]
+    fn a_write_in_the_tree_starts_a_pass() {
+        assert!(is_relevant(
+            seen(EventKind::Modify(ModifyKind::Any), "/repo/a.md"),
+            &git_dir()
+        ));
+    }
+
+    #[test]
+    fn a_write_under_dot_git_does_not() {
+        assert!(!is_relevant(
+            seen(EventKind::Modify(ModifyKind::Any), "/repo/.git/index"),
+            &git_dir()
+        ));
+    }
+
+    #[test]
+    fn a_read_of_a_tracked_file_does_not() {
+        assert!(!is_relevant(
+            seen(
+                EventKind::Access(AccessKind::Open(AccessMode::Any)),
+                "/repo/a.md"
+            ),
+            &git_dir()
+        ));
+    }
 }
