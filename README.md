@@ -37,6 +37,8 @@ recheck = "10m"     # while commits remain unpushed, retry the push this often e
 
 `boswell` watches every configured repository until stopped. `boswell once` runs a single sync pass over all of them and exits non-zero if any ended in failure, which is what a backstop timer would call. Both take `--config PATH`. Logging goes to stderr at info level; `RUST_LOG` overrides it.
 
+A single pass waits out the whole retry ladder against an unreachable remote — about ten minutes at the defaults — so a timer unit calling `boswell once` wants a `TimeoutStartSec` longer than that, or a shorter `[retry]`.
+
 ## When a push cannot land
 
 An unreachable remote is retried with exponential backoff; a push that needs a human — a non-fast-forward with `pull = false`, or a rebase that conflicts — is not retried at all. Either way boswell opens an issue titled `Auto-sync failed` against the repository's own origin, containing the error, the commits that are stuck locally and anything still uncommitted.
