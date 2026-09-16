@@ -37,7 +37,7 @@ recheck = "10m"     # while commits remain unpushed, retry the push this often e
 
 `boswell` watches every configured repository until stopped. `boswell once` runs a single sync pass over all of them and exits non-zero if any ended in failure, which is what a backstop timer would call. Both take `--config PATH`. Logging goes to stderr at info level; `RUST_LOG` overrides it.
 
-A single pass waits out the whole retry ladder against an unreachable remote — about ten minutes at the defaults — so a timer unit calling `boswell once` wants a `TimeoutStartSec` longer than that, or a shorter `[retry]`.
+A single pass waits out the whole retry ladder against an unreachable remote — a few minutes at the defaults, plus the time each push spends timing out — so a timer unit calling `boswell once` wants a `TimeoutStartSec` longer than that, or a shorter `[retry]`.
 
 ## When a push cannot land
 
