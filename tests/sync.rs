@@ -117,7 +117,7 @@ fn a_rejected_push_rebases_and_lands_both_commits() {
 }
 
 #[test]
-fn a_rebase_on_the_last_attempt_still_gets_its_push() {
+fn a_single_attempt_still_fetches_rebases_and_pushes() {
     let fixture = Fixture::new();
     let stub = Stub::start();
     fixture.advance_remote("theirs.md", "theirs\n", "from elsewhere");
@@ -242,6 +242,140 @@ fn an_unreachable_remote_backs_off_then_reports_once() {
         1,
         "an open issue must suppress the next report"
     );
+}
+
+#[test]
+fn a_clean_tree_takes_the_remote_commit_down_without_pushing() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    fixture.advance_remote("theirs.md", "theirs\n", "from elsewhere");
+
+    let outcome = sync_repo(
+        &fixture.repo_git(),
+        &fixture.repo(true),
+        &quick(),
+        &reporter(&stub),
+        &Recorder::default(),
+    );
+
+    assert_eq!(outcome, Outcome::Pulled);
+    assert_eq!(
+        fixture.local_subjects(),
+        vec!["from elsewhere".to_string(), "first".to_string()]
+    );
+    assert_eq!(
+        fixture.remote_subjects(),
+        vec!["from elsewhere".to_string(), "first".to_string()]
+    );
+    assert!(stub.posts().is_empty());
+}
+
+#[test]
+fn a_local_change_lands_on_top_of_what_the_fetch_brought_down() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    fixture.advance_remote("theirs.md", "theirs\n", "from elsewhere");
+    fixture.write("mine.md", "mine\n");
+
+    let outcome = sync_repo(
+        &fixture.repo_git(),
+        &fixture.repo(true),
+        &quick(),
+        &reporter(&stub),
+        &Recorder::default(),
+    );
+
+    assert_eq!(
+        outcome,
+        Outcome::Pushed {
+            subject: Some("Update mine.md".to_string())
+        }
+    );
+    assert_eq!(
+        fixture.remote_subjects(),
+        vec![
+            "Update mine.md".to_string(),
+            "from elsewhere".to_string(),
+            "first".to_string()
+        ]
+    );
+    assert!(fixture.git(&["status", "--porcelain"]).is_empty());
+    assert!(stub.posts().is_empty());
+}
+
+#[test]
+fn without_pulling_an_advanced_remote_is_left_alone() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    fixture.advance_remote("theirs.md", "theirs\n", "from elsewhere");
+
+    let outcome = sync_repo(
+        &fixture.repo_git(),
+        &fixture.repo(false),
+        &quick(),
+        &reporter(&stub),
+        &Recorder::default(),
+    );
+
+    assert_eq!(outcome, Outcome::Nothing);
+    assert_eq!(fixture.local_subjects(), vec!["first".to_string()]);
+    assert!(stub.posts().is_empty());
+}
+
+#[test]
+fn a_failed_fetch_backs_off_then_reports() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    fixture.break_transport();
+    fixture.write("a.md", "a\n");
+
+    let recorder = Recorder::default();
+    let outcome = sync_repo(
+        &fixture.repo_git(),
+        &fixture.repo(true),
+        &retry(3, Duration::from_secs(1), Duration::from_secs(3)),
+        &reporter(&stub),
+        &recorder,
+    );
+
+    assert_eq!(outcome, Outcome::Unreachable);
+    assert_eq!(
+        recorder.delays(),
+        vec![Duration::from_secs(1), Duration::from_secs(2)]
+    );
+    assert_eq!(stub.posts().len(), 1);
+}
+
+#[test]
+fn an_unreachable_remote_with_nothing_to_push_is_not_a_failure() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    fixture.break_transport();
+
+    let recorder = Recorder::default();
+    let outcome = sync_repo(
+        &fixture.repo_git(),
+        &fixture.repo(true),
+        &quick(),
+        &reporter(&stub),
+        &recorder,
+    );
+
+    assert_eq!(outcome, Outcome::Nothing);
+    assert!(recorder.delays().is_empty(), "nothing to retry for");
+    assert!(stub.posts().is_empty());
+}
+
+#[test]
+fn an_open_report_is_visible_to_the_daemon() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    let reporter = reporter(&stub);
+    let git = fixture.repo_git();
+
+    assert_eq!(reporter.has_open_report(&git, "origin").ok(), Some(false));
+    stub.report_open_issue(true);
+    assert_eq!(reporter.has_open_report(&git, "origin").ok(), Some(true));
 }
 
 #[test]
