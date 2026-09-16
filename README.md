@@ -7,7 +7,7 @@ Named for James Boswell, who followed Samuel Johnson around writing down everyth
 ## Install
 
 ```sh
-mise use -g ubi:timche/boswell
+mise use -g github:timche/boswell
 ```
 
 ## Configure

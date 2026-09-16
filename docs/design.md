@@ -25,7 +25,7 @@ Adjacent, and not substitutes: `git-annex assistant` syncs through annex rather 
 - **Rust.** `notify` plus `notify-debouncer-full` gives recursive watching and event coalescing as library behaviour, including directories created after start, which is the fiddly half of the job. Go's `fsnotify` is non-recursive on Linux and would mean hand-rolling both. No async runtime: the debouncer hands over a channel and a blocking loop reads it.
 - **Shell out to `git`.** Identical semantics to what a person would type, and `git` is on every machine this runs on. No `gix`, no `git2`.
 - **One binary, several repositories.** A small TOML config lists them; one process watches all of them rather than one unit per repository.
-- **Distributed as a GitHub release, installed by mise** (`ubi:timche/boswell`) or by downloading the static binary. Not published to crates.io: nobody depends on this as a library, `cargo install` would mean a Rust toolchain and a source build on the target box, and crates.io versions can only be yanked, never deleted. The crate name is taken by an unrelated retry library anyway; the binary name is what matters and it is free.
+- **Distributed as a GitHub release, installed by mise** (`github:timche/boswell`) or by downloading the static binary. Not published to crates.io: nobody depends on this as a library, `cargo install` would mean a Rust toolchain and a source build on the target box, and crates.io versions can only be yanked, never deleted. The crate name is taken by an unrelated retry library anyway; the binary name is what matters and it is free.
 - **Public repository.**
 - **Rust pinned in `mise.toml`**, with rustfmt and clippy declared as components so CI and a fresh checkout get the same toolchain.
 

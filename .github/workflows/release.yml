@@ -14,49 +14,49 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+ ubi picks an asset by matching OS and architecture in its name, so the- uses: actions/checkout@v7
 
-      # mise install takes the Rust version from mise.toml, so a release is
-      # built with the same toolchain as CI.
-      - uses: jdx/mise-action@v4
+ ubi picks an asset by matching OS and architecture in its name, so the# mise install takes the Rust version from mise.toml, so a release is
+ ubi picks an asset by matching OS and architecture in its name, so the# built with the same toolchain as CI.
+ ubi picks an asset by matching OS and architecture in its name, so the- uses: jdx/mise-action@v4
 
-      # ring compiles C, so a musl build needs a musl-targeted C compiler.
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+ ubi picks an asset by matching OS and architecture in its name, so the# ring compiles C, so a musl build needs a musl-targeted C compiler.
+ ubi picks an asset by matching OS and architecture in its name, so the- run: |
+ ubi picks an asset by matching OS and architecture in its name, so the    sudo apt-get update
+ ubi picks an asset by matching OS and architecture in its name, so the    sudo apt-get install -y musl-tools
 
-      - run: rustup target add "$TARGET"
+ ubi picks an asset by matching OS and architecture in its name, so the- run: rustup target add "$TARGET"
 
-      - run: cargo build --release --locked --target "$TARGET"
+ ubi picks an asset by matching OS and architecture in its name, so the- run: cargo build --release --locked --target "$TARGET"
 
-      # A dynamically linked binary would still build and still pass tests here,
-      # and only fail on the machines it is installed to.
-      - name: Verify the binary is static
-        run: |
-          bin="target/$TARGET/release/boswell"
-          ldd_out=$(ldd "$bin" 2>&1 || true)
-          file_out=$(file -b "$bin")
-          case "$ldd_out$file_out" in
-            *'not a dynamic executable'*|*'statically linked'*) ;;
-            *)
-              echo "not statically linked:"
-              echo "$ldd_out"
-              echo "$file_out"
-              exit 1
-              ;;
-          esac
+ ubi picks an asset by matching OS and architecture in its name, so the# A dynamically linked binary would still build and still pass tests here,
+ ubi picks an asset by matching OS and architecture in its name, so the# and only fail on the machines it is installed to.
+ ubi picks an asset by matching OS and architecture in its name, so the- name: Verify the binary is static
+ ubi picks an asset by matching OS and architecture in its name, so the  run: |
+ ubi picks an asset by matching OS and architecture in its name, so the    bin="target/$TARGET/release/boswell"
+ ubi picks an asset by matching OS and architecture in its name, so the    ldd_out=$(ldd "$bin" 2>&1 || true)
+ ubi picks an asset by matching OS and architecture in its name, so the    file_out=$(file -b "$bin")
+ ubi picks an asset by matching OS and architecture in its name, so the    case "$ldd_out$file_out" in
+ ubi picks an asset by matching OS and architecture in its name, so the      *'not a dynamic executable'*|*'statically linked'*) ;;
+ ubi picks an asset by matching OS and architecture in its name, so the      *)
+ ubi picks an asset by matching OS and architecture in its name, so the        echo "not statically linked:"
+ ubi picks an asset by matching OS and architecture in its name, so the        echo "$ldd_out"
+ ubi picks an asset by matching OS and architecture in its name, so the        echo "$file_out"
+ ubi picks an asset by matching OS and architecture in its name, so the        exit 1
+ ubi picks an asset by matching OS and architecture in its name, so the        ;;
+ ubi picks an asset by matching OS and architecture in its name, so the    esac
 
-      # ubi picks an asset by matching OS and architecture in its name, so the
-      # target triple has to stay in it.
-      - name: Package
-        run: |
-          asset="boswell-$TARGET.tar.gz"
-          tar -czf "$asset" -C "target/$TARGET/release" boswell
-          sha256sum "$asset" > "$asset.sha256"
+ ubi picks an asset by matching OS and architecture in its name, so the# ubi picks an asset by matching OS and architecture in its name, so the
+ ubi picks an asset by matching OS and architecture in its name, so the# target triple has to stay in it.
+ ubi picks an asset by matching OS and architecture in its name, so the- name: Package
+ ubi picks an asset by matching OS and architecture in its name, so the  run: |
+ ubi picks an asset by matching OS and architecture in its name, so the    asset="boswell-$TARGET.tar.gz"
+ ubi picks an asset by matching OS and architecture in its name, so the    tar -czf "$asset" -C "target/$TARGET/release" boswell
+ ubi picks an asset by matching OS and architecture in its name, so the    sha256sum "$asset" > "$asset.sha256"
 
-      - name: Create the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          asset="boswell-$TARGET.tar.gz"
-          gh release create "$GITHUB_REF_NAME" --generate-notes "$asset" "$asset.sha256"
+ ubi picks an asset by matching OS and architecture in its name, so the- name: Create the release
+ ubi picks an asset by matching OS and architecture in its name, so the  env:
+ ubi picks an asset by matching OS and architecture in its name, so the    GH_TOKEN: ${{ github.token }}
+ ubi picks an asset by matching OS and architecture in its name, so the  run: |
+ ubi picks an asset by matching OS and architecture in its name, so the    asset="boswell-$TARGET.tar.gz"
+ ubi picks an asset by matching OS and architecture in its name, so the    gh release create "$GITHUB_REF_NAME" --generate-notes "$asset" "$asset.sha256"
