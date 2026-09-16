@@ -18,10 +18,6 @@ use crate::{Error, Result};
 /// deadline loop below, which has to be restartable by each new event.
 const COALESCE: Duration = Duration::from_millis(250);
 
-/// With nothing outstanding a repository only has to wake for real events, but
-/// a bounded wait keeps the loop responsive to a disconnected watcher.
-const IDLE_WAKE: Duration = Duration::from_secs(3600);
-
 /// Returns as soon as any one repository stops being watched. Joining the
 /// threads in order would hide a dead repository behind a live one, and a
 /// daemon watching half of what it was asked to is worse than a dead one: this
@@ -84,22 +80,25 @@ fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
 
     let git_dir = repo.path.join(".git");
     loop {
-        let wake = if outstanding { repo.recheck } else { IDLE_WAKE };
-        match rx.recv_timeout(wake) {
-            Ok(result) => {
-                if !is_relevant(result, &git_dir) {
-                    continue;
-                }
-                if !settle(&rx, &git_dir, repo.debounce) {
-                    break;
-                }
+        let event = if outstanding {
+            match rx.recv_timeout(repo.recheck) {
+                Ok(result) => Some(result),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => break,
             }
-            Err(RecvTimeoutError::Timeout) => {
-                if !outstanding {
-                    continue;
-                }
+        } else {
+            match rx.recv() {
+                Ok(result) => Some(result),
+                Err(_) => break,
             }
-            Err(RecvTimeoutError::Disconnected) => break,
+        };
+        if let Some(result) = event {
+            if !is_relevant(result, &git_dir) {
+                continue;
+            }
+            if !settle(&rx, &git_dir, repo.debounce) {
+                break;
+            }
         }
         outstanding = sync_repo(&git, repo, retry, reporter, &sleeper).is_failure();
     }
