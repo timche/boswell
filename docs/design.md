@@ -20,6 +20,16 @@ It is the wrong shape for documentation. Its history is a checkpoint stream rath
 
 One behaviour worth checking before trusting either: mise's documentation says conflicts or unsaved edits can *pause* synchronization. A silent pause is the same defect that rules out `gitwatch` below.
 
+## What already exists
+
+Searched on 2026-09-16. For a general tool that watches a tree and commits what changes, there is one maintained implementation: [gitwatch](https://github.com/gitwatch/gitwatch), 1,736 stars, 486 lines of bash, `inotifywait` plus a debounce. Its push is `eval "$PUSH_CMD"` with no status check, so a failed push is not detected, not retried, and does not stop the daemon — the outage goes unreported on a quiet repository. Everything else in that space has single-digit stars.
+
+The need is clearly real, but it keeps being solved *inside* the application that owns the files. [obsidian-git](https://github.com/Vinzent03/obsidian-git) does precisely this job at 11,991 stars, for an Obsidian vault; Grav has a plugin that does it for a CMS's content folder. `~/docs` was an Obsidian vault on Obsidian Sync until git replaced both, so the closest prior art is a tool this repository's target used to be able to use and no longer can.
+
+That is the gap boswell sits in: auto-committing source code is an anti-pattern, so nobody builds this for developers, and the people who want it are writing content and get it from their editor. An agent writing prose has no editor.
+
+Adjacent, and not substitutes: `git-annex assistant` syncs through annex rather than plain commits, and mise's `history-watch` — the one other maintained watcher — keeps a checkpoint stream for configuration files.
+
 ## Decisions
 
 - **Rust.** `notify` plus `notify-debouncer-full` gives recursive watching and event coalescing as library behaviour, including directories created after start — the fiddly half of the job. Go's `fsnotify` is non-recursive on Linux and would mean hand-rolling both. No async runtime: the debouncer hands over a channel and a blocking loop reads it.
