@@ -117,6 +117,38 @@ fn a_rejected_push_rebases_and_lands_both_commits() {
 }
 
 #[test]
+fn a_rebase_on_the_last_attempt_still_gets_its_push() {
+    let fixture = Fixture::new();
+    let stub = Stub::start();
+    fixture.advance_remote("theirs.md", "theirs\n", "from elsewhere");
+    fixture.write("mine.md", "mine\n");
+
+    let outcome = sync_repo(
+        &fixture.repo_git(),
+        &fixture.repo(true),
+        &retry(1, Duration::from_millis(1), Duration::from_millis(1)),
+        &reporter(&stub),
+        &Recorder::default(),
+    );
+
+    assert_eq!(
+        outcome,
+        Outcome::Pushed {
+            subject: Some("Update mine.md".to_string())
+        }
+    );
+    assert_eq!(
+        fixture.remote_subjects(),
+        vec![
+            "Update mine.md".to_string(),
+            "from elsewhere".to_string(),
+            "first".to_string()
+        ]
+    );
+    assert!(stub.posts().is_empty());
+}
+
+#[test]
 fn a_rejected_push_without_pull_needs_a_human_and_files_one_issue() {
     let fixture = Fixture::new();
     let stub = Stub::start();
