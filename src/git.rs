@@ -128,7 +128,15 @@ impl Git {
         self.run(&["rebase", "--abort"])
     }
 
+    /// The URL as configured, not as `git remote get-url` reports it: that
+    /// applies `url.*.insteadOf` rewriting, which can turn a GitHub remote into
+    /// whatever transport the machine substitutes.
     pub fn remote_url(&self, remote: &str) -> io::Result<String> {
+        let key = format!("remote.{remote}.url");
+        let out = self.run(&["config", "--get", &key])?;
+        if out.success && !out.stdout.trim().is_empty() {
+            return Ok(out.stdout.trim().to_string());
+        }
         let out = self.run(&["remote", "get-url", remote])?;
         if out.success {
             Ok(out.stdout.trim().to_string())
