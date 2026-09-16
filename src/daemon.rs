@@ -67,10 +67,6 @@ pub fn once(config: &Config) -> bool {
 }
 
 fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
-    let git = Git::new(&repo.path);
-    let sleeper = ThreadSleeper;
-    let mut outstanding = sync_repo(&git, repo, retry, reporter, &sleeper).is_failure();
-
     let (tx, rx) = channel();
     let mut debouncer = new_debouncer(COALESCE, None, tx)
         .map_err(|e| format!("cannot watch {}: {e}", repo.path.display()))?;
@@ -78,6 +74,13 @@ fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
         .watch(&repo.path, RecursiveMode::Recursive)
         .map_err(|e| format!("cannot watch {}: {e}", repo.path.display()))?;
     info!("watching {}", repo.path.display());
+
+    // The catch-up pass runs after registration, not before: a write that lands
+    // while it is running then queues on the channel, instead of waiting for
+    // some unrelated later change to notice it.
+    let git = Git::new(&repo.path);
+    let sleeper = ThreadSleeper;
+    let mut outstanding = sync_repo(&git, repo, retry, reporter, &sleeper).is_failure();
 
     let git_dir = repo.path.join(".git");
     loop {

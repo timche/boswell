@@ -1,9 +1,10 @@
 mod support;
 
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 use support::{Fixture, Stub};
@@ -90,6 +91,38 @@ fn one_unwatchable_repository_brings_the_daemon_down() {
     );
 }
 
+fn stderr_lines(child: &mut Child) -> Receiver<String> {
+    let stderr = child.stderr.take().expect("stderr");
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            eprintln!("{line}");
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
+fn wait_for_line(rx: &Receiver<String>, needle: &str, deadline: Duration) -> bool {
+    let until = Instant::now() + deadline;
+    loop {
+        let now = Instant::now();
+        if now >= until {
+            return false;
+        }
+        match rx.recv_timeout(until - now) {
+            Ok(line) => {
+                if line.contains(needle) {
+                    return true;
+                }
+            }
+            Err(_) => return false,
+        }
+    }
+}
+
 fn wait_for_exit(child: &mut Child, deadline: Duration) -> Option<ExitStatus> {
     let until = Instant::now() + deadline;
     while Instant::now() < until {
@@ -118,7 +151,7 @@ fn a_burst_of_writes_becomes_one_commit_and_git_does_not_retrigger() {
     )
     .expect("config");
 
-    let child = Command::new(env!("CARGO_BIN_EXE_boswell"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boswell"))
         .arg("--config")
         .arg(&config)
         .env("GH_TOKEN", "test")
@@ -126,13 +159,23 @@ fn a_burst_of_writes_becomes_one_commit_and_git_does_not_retrigger() {
         .env("GIT_CONFIG_GLOBAL", fixture.no_config_path())
         .env("GIT_CONFIG_SYSTEM", fixture.no_config_path())
         .env("RUST_LOG", "info")
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn boswell");
+    let lines = stderr_lines(&mut child);
     let _running = Running(child);
 
-    // The startup sync pass and the first inotify registration have to land
-    // before writing, or the burst is missed rather than debounced.
-    std::thread::sleep(Duration::from_secs(1));
+    assert!(
+        wait_for_line(
+            &lines,
+            &format!("watching {}", fixture.work.display()),
+            Duration::from_secs(15)
+        ),
+        "boswell never reported that it was watching"
+    );
+    // Only so the catch-up pass finishes first: a burst that straddles its
+    // `git add -A` would legitimately split across two commits.
+    std::thread::sleep(Duration::from_millis(300));
     fixture.write("a.md", "a\n");
     fixture.write("b.md", "b\n");
 
