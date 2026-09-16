@@ -176,6 +176,13 @@ fn run(dir: &Path, no_config: &Path, args: &[&str]) -> String {
         .env("GIT_CONFIG_SYSTEM", no_config)
         .output()
         .expect("git");
+    assert!(
+        out.status.success(),
+        "fixture `git {}` in {} failed: {}",
+        args.join(" "),
+        dir.display(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
