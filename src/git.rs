@@ -98,6 +98,10 @@ impl Git {
         self.lines(&["log", "--oneline", "@{upstream}..HEAD"])
     }
 
+    pub fn behind(&self) -> Vec<String> {
+        self.lines(&["log", "--oneline", "HEAD..@{upstream}"])
+    }
+
     pub fn staged_files(&self) -> Vec<String> {
         self.lines(&["diff", "--cached", "--name-only"])
     }
@@ -118,6 +122,10 @@ impl Git {
         args.push(remote);
         args.push(branch);
         self.run(&args)
+    }
+
+    pub fn fetch(&self, remote: &str) -> io::Result<Output> {
+        self.run(&["fetch", remote])
     }
 
     pub fn pull_rebase(&self, remote: &str, branch: &str) -> io::Result<Output> {
