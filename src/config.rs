@@ -48,6 +48,8 @@ pub struct Repo {
     pub pull: bool,
     #[serde(default = "default_recheck", with = "humantime_serde")]
     pub recheck: Duration,
+    #[serde(default = "default_fetch_interval", with = "humantime_serde")]
+    pub fetch_interval: Duration,
 }
 
 fn default_api_url() -> String {
@@ -75,6 +77,12 @@ fn default_pull() -> bool {
 }
 fn default_recheck() -> Duration {
     Duration::from_secs(600)
+}
+// A minute is what a timer would have used, and the cost of a fetch that finds
+// nothing is one round trip, so the second machine's writes arrive about as
+// fast as a person switching to the other window notices.
+fn default_fetch_interval() -> Duration {
+    Duration::from_secs(60)
 }
 
 impl Default for Github {
@@ -159,6 +167,7 @@ mod tests {
         assert!(repo.pull);
         assert_eq!(repo.debounce, Duration::from_secs(5));
         assert_eq!(repo.recheck, Duration::from_secs(600));
+        assert_eq!(repo.fetch_interval, Duration::from_secs(60));
         assert_eq!(config.retry.attempts, 6);
         assert_eq!(config.retry.base, Duration::from_secs(5));
         assert_eq!(config.retry.max, Duration::from_secs(300));
@@ -173,6 +182,13 @@ mod tests {
         .unwrap();
         assert_eq!(config.retry.base, Duration::from_millis(250));
         assert_eq!(config.repos[0].debounce, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn a_zero_fetch_interval_parses() {
+        let config: Config =
+            toml::from_str("[[repo]]\npath = \"/tmp/x\"\nfetch_interval = \"0s\"\n").unwrap();
+        assert_eq!(config.repos[0].fetch_interval, Duration::ZERO);
     }
 
     #[test]

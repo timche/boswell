@@ -162,6 +162,14 @@ impl Fixture {
             remote: "origin".to_string(),
             pull,
             recheck: Duration::from_secs(600),
+            fetch_interval: Duration::from_secs(600),
+        }
+    }
+
+    pub fn repo_fetching(&self, interval: Duration) -> Repo {
+        Repo {
+            fetch_interval: interval,
+            ..self.repo(true)
         }
     }
 }
