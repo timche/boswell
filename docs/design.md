@@ -2,13 +2,23 @@
 
 ## What it is
 
-A daemon that watches one or more git repositories and, when files change, commits and pushes them. It replaces a `systemd` timer that ran `git-sync.sh` once a minute against `claude-dotfiles` and the project docs.
+A daemon that watches one or more git repositories and, when files change, commits and pushes them. It replaces a `systemd` timer that runs `git-sync.sh` once a minute against the project docs in `~/docs`, and possibly against `claude-dotfiles` too.
+
+**The docs are the target.** An earlier version of this document put the dotfiles repository first; that was a misreading. `~/docs` is what a session writes during work and what Tim then reads on GitHub from other devices, so the delay between Claude writing a document and it being readable is the thing worth shortening. A half-finished paragraph published early is harmless there. In `claude-dotfiles` it is not — a half-written `install.sh` is a broken machine — which is why a short debounce suits one repository and not the other, and why they may not want the same treatment at all.
 
 ## Why it exists
 
 The timer works, and the reason to replace it is not latency. Watching is nice to have; what the timer cannot do well is fail. A push that cannot land is retried on the next tick with no backoff, and the failure is reported by a separate `OnFailure=` unit that files a GitHub issue. Everything about that path is spread across three units and a shell script.
 
 The one thing a watcher must not lose is that failure reporting. `gitwatch`, the ready-made alternative, runs its push as `eval "$PUSH_CMD"` with no status check: a failed push is not detected, not retried, and does not stop the daemon, so an outage on a quiet repository goes unreported indefinitely. That is the defect boswell exists to not have.
+
+## What mise already does, and where it stops
+
+Since this was written, mise turned out to ship most of this for *configuration files*: `mise dot track <path>` watches a file in place, `[bootstrap.services.mise-history] builtin = "history-watch"` runs the watcher as a user service, and `history.sync = "sync"` with an origin gives two-way sync between machines, plus history, diff, rollback and conflict commands. If the dotfiles repository ever wants a watcher, that is the thing to try first — it is already installed, and `claude-dotfiles` now uses mise for its tool list, its lockfile and its `[dotfiles]` symlinks.
+
+It is the wrong shape for documentation. Its history is a checkpoint stream rather than commits you would read, and its own documentation warns that earlier checkpoints travel to the origin when sync is enabled. The docs repository wants readable subjects, a history worth browsing on GitHub, and nothing intermediate published. So mise covers the dotfiles case and leaves this one open.
+
+One behaviour worth checking before trusting either: mise's documentation says conflicts or unsaved edits can *pause* synchronization. A silent pause is the same defect that rules out `gitwatch` below.
 
 ## Decisions
 
@@ -36,6 +46,8 @@ The one thing a watcher must not lose is that failure reporting. `gitwatch`, the
 ## State
 
 The repository exists and is empty apart from `mise.toml` pinning Rust 1.98, a `.gitignore` for `/target`, and these documents. No `cargo init` yet, no code.
+
+Written on the VPS that is being decommissioned; the work continues on the new machine. Nothing here depends on that box.
 
 ## Next
 
