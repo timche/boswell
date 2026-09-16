@@ -16,9 +16,9 @@ The one thing a watcher must not lose is that failure reporting. `gitwatch`, the
 
 Since this was written, mise turned out to ship most of this for *configuration files*: `mise dot track <path>` watches a file in place, `[bootstrap.services.mise-history] builtin = "history-watch"` runs the watcher as a user service, and `history.sync = "sync"` with an origin gives two-way sync between machines, plus history, diff, rollback and conflict commands. If the dotfiles repository ever wants a watcher, that is the thing to try first — it is already installed, and `claude-dotfiles` now uses mise for its tool list, its lockfile and its `[dotfiles]` symlinks.
 
-It is the wrong shape for documentation. Its history is a checkpoint stream rather than commits you would read, and its own documentation warns that earlier checkpoints travel to the origin when sync is enabled. The docs repository wants readable subjects, a history worth browsing on GitHub, and nothing intermediate published. So mise covers the dotfiles case and leaves this one open.
+It is the wrong shape for documentation. Its checkpoints are ordinary git commits, but their subjects are trigger labels — `edit` and the like — rather than narrated ones, and its own documentation warns that earlier checkpoints travel to the origin when sync is enabled. The docs repository wants readable subjects, a history worth browsing on GitHub, and nothing intermediate published. So mise covers the dotfiles case and leaves this one open.
 
-One behaviour worth checking before trusting either: mise's documentation says conflicts or unsaved edits can *pause* synchronization. A silent pause is the same defect that rules out `gitwatch` below.
+One behaviour worth checking before trusting either: mise's documentation says conflicts or unsaved edits can *pause* synchronization, and it reports the pause with a desktop notification — which on a headless machine is nothing at all. An unnoticed pause is the same defect that rules out `gitwatch` below.
 
 ## Decisions
 
@@ -39,20 +39,25 @@ One behaviour worth checking before trusting either: mise's documentation says c
 
 ## Not yet decided
 
-- Whether a long-interval backstop timer survives alongside it. In-process retry covers a failed push, but nothing covers the daemon being dead. A timer that only pushes, wired to the existing issue filer, is cheap insurance; the alternative is a watchdog on the unit.
-- Whether boswell also handles the initial `git pull --rebase` a second machine would need. The current setup never pulls, because one machine writes.
-- Default debounce. The timer's minute was deliberate: a short window means a half-finished edit can be upstream before the next write finishes it, which is the known failure mode of the current design. A watcher with a two second debounce makes that more likely, not less.
+- Whether a long-interval backstop timer survives alongside it. In-process retry covers a failed push, but nothing covers the daemon being dead. A timer that only pushes, wired to the existing issue filer, is cheap insurance; the alternative is a watchdog on the unit. `boswell once` now exists for such a timer to call, which makes the question cheaper to answer either way but does not answer it.
+
+Since settled, and no longer open:
+
+- **Default debounce: five seconds.** The timer's minute was deliberate — a short window means a half-finished edit can be upstream before the next write finishes it — but the docs repository is precisely where that does not matter, and five seconds outlasts one agent's burst of writes while still being an order of magnitude faster than the timer. `gitwatch`'s two seconds was judged too eager.
+- **Pulling is on by default.** A rejected push runs `git pull --rebase --autostash` and pushes again; a conflict aborts the rebase and asks for a person rather than retrying. That covers the second machine as far as a rejected push goes, so the second question above is answered in practice.
+- **An in-process recheck interval**, ten minutes by default, retries a push while commits remain unpushed even when no file changes.
+- **A `once` subcommand** runs one pass over every repository and exits non-zero on failure.
 
 ## State
 
-The repository exists and is empty apart from `mise.toml` pinning Rust 1.98, a `.gitignore` for `/target`, and these documents. No `cargo init` yet, no code.
+The daemon, the config format and the tests exist on the `core` branch: watching with a per-repository debounce, the commit subject carried over from `git-sync.sh`, the push path with its retry and its three outcomes, and the deduplicated `Auto-sync failed` issue filed through the GitHub API. What remains is the release workflow producing the binary mise installs, and the switch-over in `claude-dotfiles`.
 
 Written on the VPS that is being decommissioned; the work continues on the new machine. Nothing here depends on that box.
 
 ## Next
 
-1. `cargo init`, dependencies: `notify`, `notify-debouncer-full`, `serde`, `toml`, `clap`, and an HTTP client for the GitHub API.
-2. Implement the watch, debounce and commit path; then the push path with its retry and its three outcomes.
-3. Tests against temporary repositories with a local bare remote, including a remote made unreachable to exercise the failure path.
+1. ~~`cargo init`, dependencies: `notify`, `notify-debouncer-full`, `serde`, `toml`, `clap`, and an HTTP client for the GitHub API.~~ Done.
+2. ~~Implement the watch, debounce and commit path; then the push path with its retry and its three outcomes.~~ Done.
+3. ~~Tests against temporary repositories with a local bare remote, including a remote made unreachable to exercise the failure path.~~ Done.
 4. A release workflow producing a static binary, and the mise entry that installs it.
 5. In `claude-dotfiles`: replace `git-sync@.service`, `git-sync@.timer` and `git-sync-failed@.service` with one boswell unit, and move or retire the assertions in `test/assert.sh` that cover them.
