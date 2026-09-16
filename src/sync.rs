@@ -33,16 +33,13 @@ impl Sleeper for ThreadSleeper {
     }
 }
 
+/// Deliberately not a bare `rejected`: `! [remote rejected]` is a hook or a
+/// protected branch refusing the push, which no amount of rebasing fixes.
 fn is_rejection(stderr: &str) -> bool {
     let stderr = stderr.to_lowercase();
-    [
-        "rejected",
-        "fetch first",
-        "non-fast-forward",
-        "failed to push some refs",
-    ]
-    .iter()
-    .any(|marker| stderr.contains(marker))
+    ["[rejected]", "fetch first", "non-fast-forward"]
+        .iter()
+        .any(|marker| stderr.contains(marker))
 }
 
 pub fn sync_repo(
@@ -99,9 +96,38 @@ fn try_sync(
     let mut delay = retry.base;
     let mut last_error = String::new();
     for attempt in 1..=retry.attempts {
-        let out = git
+        let mut out = git
             .push(&repo.remote, &branch, set_upstream)
             .map_err(|e| e.to_string())?;
+
+        if !out.success && is_rejection(&out.message()) {
+            if !repo.pull {
+                return Ok((Outcome::NeedsHuman, out.message()));
+            }
+            let pull = git
+                .pull_rebase(&repo.remote, &branch)
+                .map_err(|e| e.to_string())?;
+            if !pull.success {
+                // Leave no half-finished rebase behind: whoever fixes this by
+                // hand should find an ordinary working tree.
+                if let Err(e) = git.rebase_abort() {
+                    warn!("{}: rebase --abort failed: {e}", git.dir().display());
+                }
+                return Ok((Outcome::NeedsHuman, pull.message()));
+            }
+            set_upstream = false;
+            // The push has to follow the rebase here rather than on the next
+            // attempt, which on the last one would never come.
+            out = git
+                .push(&repo.remote, &branch, false)
+                .map_err(|e| e.to_string())?;
+            if !out.success && is_rejection(&out.message()) {
+                // Rejected again on a freshly rebased branch: something else is
+                // writing to it, and retrying would only lose whichever race.
+                return Ok((Outcome::NeedsHuman, out.message()));
+            }
+        }
+
         if out.success {
             match &subject {
                 Some(s) => info!("{}: pushed `{s}`", git.dir().display()),
@@ -110,26 +136,6 @@ fn try_sync(
             return Ok((Outcome::Pushed { subject }, String::new()));
         }
         last_error = out.message();
-
-        if is_rejection(&last_error) {
-            if !repo.pull {
-                return Ok((Outcome::NeedsHuman, last_error));
-            }
-            let pull = git
-                .pull_rebase(&repo.remote, &branch)
-                .map_err(|e| e.to_string())?;
-            if !pull.success {
-                last_error = pull.message();
-                // Leave no half-finished rebase behind: whoever fixes this by
-                // hand should find an ordinary working tree.
-                if let Err(e) = git.rebase_abort() {
-                    warn!("{}: rebase --abort failed: {e}", git.dir().display());
-                }
-                return Ok((Outcome::NeedsHuman, last_error));
-            }
-            set_upstream = false;
-            continue;
-        }
 
         if attempt < retry.attempts {
             sleeper.sleep(delay);
