@@ -1,4 +1,6 @@
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
@@ -6,11 +8,11 @@ use log::{info, warn};
 use notify::RecursiveMode;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 
-use crate::Result;
 use crate::config::{Config, Repo, Retry};
 use crate::git::Git;
 use crate::issue::{Reporter, TokenSource};
 use crate::sync::{ThreadSleeper, sync_repo};
+use crate::{Error, Result};
 
 /// Only coalesces raw inotify chatter; the debounce the config asks for is the
 /// deadline loop below, which has to be restartable by each new event.
@@ -20,24 +22,37 @@ const COALESCE: Duration = Duration::from_millis(250);
 /// a bounded wait keeps the loop responsive to a disconnected watcher.
 const IDLE_WAKE: Duration = Duration::from_secs(3600);
 
+/// Returns as soon as any one repository stops being watched. Joining the
+/// threads in order would hide a dead repository behind a live one, and a
+/// daemon watching half of what it was asked to is worse than a dead one: this
+/// way the process exits non-zero and whatever supervises it can restart.
 pub fn run(config: Config) -> Result<()> {
-    let reporter = Reporter::new(&config.github.api_url, TokenSource::Environment);
-    std::thread::scope(|scope| {
-        let mut handles = Vec::new();
-        for repo in &config.repos {
-            let reporter = &reporter;
-            let retry = &config.retry;
-            handles.push(scope.spawn(move || watch(repo, retry, reporter)));
-        }
-        for handle in handles {
-            match handle.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => return Err(e),
-                Err(_) => return Err("a repository worker panicked".into()),
-            }
-        }
-        Ok(())
-    })
+    let config = Arc::new(config);
+    let reporter = Arc::new(Reporter::new(
+        &config.github.api_url,
+        TokenSource::Environment,
+    ));
+    let (tx, rx) = channel::<Error>();
+    for index in 0..config.repos.len() {
+        let config = Arc::clone(&config);
+        let reporter = Arc::clone(&reporter);
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let repo = &config.repos[index];
+            let attempt = catch_unwind(AssertUnwindSafe(|| watch(repo, &config.retry, &reporter)));
+            let error: Error = match attempt {
+                Ok(Ok(())) => format!("{} stopped being watched", repo.path.display()).into(),
+                Ok(Err(e)) => e,
+                Err(_) => format!("the watcher for {} panicked", repo.path.display()).into(),
+            };
+            let _ = tx.send(error);
+        });
+    }
+    drop(tx);
+    match rx.recv() {
+        Ok(error) => Err(error),
+        Err(_) => Err("no repositories left to watch".into()),
+    }
 }
 
 pub fn once(config: &Config) -> bool {
