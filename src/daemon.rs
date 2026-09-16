@@ -105,8 +105,7 @@ fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
     Err(format!("the watcher for {} stopped", repo.path.display()).into())
 }
 
-/// Waits for `debounce` of quiet, restarting on every relevant event, so a
-/// burst of writes becomes one commit. False means the watcher went away.
+/// False means the watcher went away.
 fn settle(rx: &Receiver<DebounceEventResult>, git_dir: &Path, debounce: Duration) -> bool {
     let mut deadline = Instant::now() + debounce;
     loop {
