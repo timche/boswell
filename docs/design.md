@@ -33,6 +33,7 @@ One behaviour worth checking before trusting either: mise's documentation says c
 
 - Config lists repositories, each with a debounce and a remote.
 - A change to a watched tree starts the debounce; further changes restart it, so a burst of writes lands as one commit.
+- `notify` cannot exclude a subtree from a recursive watch, so `.git` is watched like everything else and its events are discarded after the fact. The cost is a few hundred inotify watches per repository that exist only to be ignored.
 - Commit message generation is the one thing worth carrying over from `git-sync.sh`: a sentence-case subject, and the changed file list joined with a comma and a space. `claude-dotfiles`' `test/assert.sh` asserts both, so whatever boswell writes has to keep satisfying them or those assertions move here.
 - Push with bounded retry and exponential backoff. The three outcomes are distinct and handled separately: nothing to push, the push was rejected (needs a pull first), the remote was unreachable.
 - Only when retries are exhausted does it open a GitHub issue, through the API with the token from `gh auth token` rather than by shelling out to `gh` — the failure path should not depend on another binary. One open issue suppresses further ones, which is what the current `git-sync-failed.sh` does, and closing it is what re-arms reporting.
