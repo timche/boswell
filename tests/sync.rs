@@ -258,4 +258,8 @@ fn slugs_come_from_either_github_remote_spelling() {
         slug_from_remote_url("https://github.com/o/r").as_deref(),
         Some("o/r")
     );
+    assert_eq!(
+        slug_from_remote_url("ssh://git@github.com/o/r.git").as_deref(),
+        Some("o/r")
+    );
 }

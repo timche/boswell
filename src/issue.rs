@@ -46,9 +46,13 @@ fn gh_cli_token() -> Option<String> {
 
 pub fn slug_from_remote_url(url: &str) -> Option<String> {
     let url = url.trim();
-    let rest = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("git@github.com:"))?;
+    let rest = [
+        "https://github.com/",
+        "ssh://git@github.com/",
+        "git@github.com:",
+    ]
+    .iter()
+    .find_map(|prefix| url.strip_prefix(prefix))?;
     let slug = rest.strip_suffix(".git").unwrap_or(rest).trim_matches('/');
     (!slug.is_empty()).then(|| slug.to_string())
 }
@@ -204,6 +208,18 @@ mod tests {
     fn https_without_git_suffix() {
         assert_eq!(
             slug_from_remote_url("https://github.com/o/r").as_deref(),
+            Some("o/r")
+        );
+    }
+
+    #[test]
+    fn ssh_url_form() {
+        assert_eq!(
+            slug_from_remote_url("ssh://git@github.com/o/r.git").as_deref(),
+            Some("o/r")
+        );
+        assert_eq!(
+            slug_from_remote_url("ssh://git@github.com/o/r").as_deref(),
             Some("o/r")
         );
     }
