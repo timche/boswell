@@ -88,14 +88,26 @@ impl Reporter {
         }
     }
 
-    fn try_report(&self, git: &Git, remote: &str, error_output: &str) -> Result<()> {
+    /// Whether the repository still carries an open `Auto-sync failed`. The
+    /// error is the caller's to interpret: not knowing is not the same as no.
+    pub fn has_open_report(&self, git: &Git, remote: &str) -> Result<bool> {
+        let (slug, token) = self.slug_and_token(git, remote)?;
+        self.query_open_report(&slug, &token)
+    }
+
+    fn slug_and_token(&self, git: &Git, remote: &str) -> Result<(String, String)> {
         let url = git.remote_url(remote)?;
         let slug = slug_from_remote_url(&url)
             .ok_or_else(|| format!("remote {remote} is not a GitHub repository: {url}"))?;
         let Some(token) = self.token.resolve() else {
             return Err("no GitHub token in GH_TOKEN, GITHUB_TOKEN or `gh auth token`".into());
         };
-        if self.has_open_report(&slug, &token)? {
+        Ok((slug, token))
+    }
+
+    fn try_report(&self, git: &Git, remote: &str, error_output: &str) -> Result<()> {
+        let (slug, token) = self.slug_and_token(git, remote)?;
+        if self.query_open_report(&slug, &token)? {
             info!("{slug} already has an open `{TITLE}` issue; not filing another");
             return Ok(());
         }
@@ -105,7 +117,7 @@ impl Reporter {
         Ok(())
     }
 
-    fn has_open_report(&self, slug: &str, token: &str) -> Result<bool> {
+    fn query_open_report(&self, slug: &str, token: &str) -> Result<bool> {
         let url = format!(
             "{}/repos/{slug}/issues?state=open&per_page=100",
             self.api_url

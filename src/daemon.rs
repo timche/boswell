@@ -10,8 +10,8 @@ use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 
 use crate::config::{Config, Repo, Retry};
 use crate::git::Git;
-use crate::issue::{Reporter, TokenSource};
-use crate::sync::{ThreadSleeper, sync_repo};
+use crate::issue::{Reporter, TITLE, TokenSource};
+use crate::sync::{Outcome, ThreadSleeper, sync_repo};
 use crate::{Error, Result};
 
 /// Only coalesces raw inotify chatter; the debounce the config asks for is the
@@ -76,33 +76,78 @@ fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
     // some unrelated later change to notice it.
     let git = Git::new(&repo.path);
     let sleeper = ThreadSleeper;
-    let mut outstanding = sync_repo(&git, repo, retry, reporter, &sleeper).is_failure();
+    let fetch_interval =
+        (repo.pull && !repo.fetch_interval.is_zero()).then_some(repo.fetch_interval);
+    let outcome = sync_repo(&git, repo, retry, reporter, &sleeper);
+    let mut outstanding = outcome.is_failure();
+    let mut paused = outcome == Outcome::NeedsHuman;
+    let mut last_sync = Instant::now();
+    let mut fetch_due = fetch_interval.and_then(|interval| last_sync.checked_add(interval));
 
     let git_dir = repo.path.join(".git");
     loop {
-        let event = if outstanding {
-            match rx.recv_timeout(repo.recheck) {
+        // A deadline that does not fit in an `Instant` is a configured interval
+        // so long that never waking on it is the same thing.
+        let recheck_due = outstanding
+            .then(|| last_sync.checked_add(repo.recheck))
+            .flatten();
+        let due = [recheck_due, fetch_due].into_iter().flatten().min();
+        let event = match due {
+            Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(result) => Some(result),
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
-            }
-        } else {
-            match rx.recv() {
+            },
+            None => match rx.recv() {
                 Ok(result) => Some(result),
                 Err(_) => break,
-            }
+            },
         };
-        if let Some(result) = event {
-            if !is_relevant(result, &git_dir) {
-                continue;
+        match event {
+            Some(result) => {
+                if !is_relevant(result, &git_dir) {
+                    continue;
+                }
+                if !settle(&rx, &git_dir, repo.debounce) {
+                    break;
+                }
             }
-            if !settle(&rx, &git_dir, repo.debounce) {
-                break;
+            // Rebasing again over the conflict that stopped the last pass would
+            // only conflict again; the closed issue is the signal that a person
+            // has been here. A file event still syncs, since that is new work.
+            None => {
+                if paused {
+                    let wait = still_reported(reporter, &git, &repo.remote);
+                    last_sync = Instant::now();
+                    fetch_due = fetch_interval.and_then(|interval| last_sync.checked_add(interval));
+                    if wait {
+                        continue;
+                    }
+                }
             }
         }
-        outstanding = sync_repo(&git, repo, retry, reporter, &sleeper).is_failure();
+        let outcome = sync_repo(&git, repo, retry, reporter, &sleeper);
+        outstanding = outcome.is_failure();
+        paused = outcome == Outcome::NeedsHuman;
+        last_sync = Instant::now();
+        fetch_due = fetch_interval.and_then(|interval| last_sync.checked_add(interval));
     }
     Err(format!("the watcher for {} stopped", repo.path.display()).into())
+}
+
+/// Unknown counts as still reported: a reporter that cannot answer must not
+/// resume pulling into a tree nobody has looked at.
+fn still_reported(reporter: &Reporter, git: &Git, remote: &str) -> bool {
+    match reporter.has_open_report(git, remote) {
+        Ok(open) => open,
+        Err(e) => {
+            warn!(
+                "{}: cannot tell whether `{TITLE}` is still open: {e}",
+                git.dir().display()
+            );
+            true
+        }
+    }
 }
 
 /// False means the watcher went away.
