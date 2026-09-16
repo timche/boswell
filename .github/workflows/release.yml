@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  TARGET: x86_64-unknown-linux-musl
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # mise install takes the Rust version from mise.toml, so a release is
+      # built with the same toolchain as CI.
+      - uses: jdx/mise-action@v2
+
+      # ring compiles C, so a musl build needs a musl-targeted C compiler.
+      - run: sudo apt-get install -y musl-tools
+
+      - run: rustup target add "$TARGET"
+
+      - run: cargo build --release --locked --target "$TARGET"
+
+      # A dynamically linked binary would still build and still pass tests here,
+      # and only fail on the machines it is installed to.
+      - name: Verify the binary is static
+        run: |
+          bin="target/$TARGET/release/boswell"
+          ldd_out=$(ldd "$bin" 2>&1 || true)
+          file_out=$(file -b "$bin")
+          case "$ldd_out$file_out" in
+            *'not a dynamic executable'*|*'statically linked'*) ;;
+            *)
+              echo "not statically linked:"
+              echo "$ldd_out"
+              echo "$file_out"
+              exit 1
+              ;;
+          esac
+
+      # ubi picks an asset by matching OS and architecture in its name, so the
+      # target triple has to stay in it.
+      - name: Package
+        run: |
+          asset="boswell-$TARGET.tar.gz"
+          tar -czf "$asset" -C "target/$TARGET/release" boswell
+          sha256sum "$asset" > "$asset.sha256"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="boswell-$TARGET.tar.gz"
+          gh release create "$GITHUB_REF_NAME" --generate-notes "$asset" "$asset.sha256"
