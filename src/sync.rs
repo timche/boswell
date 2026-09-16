@@ -1,0 +1,140 @@
+use std::time::Duration;
+
+use log::{error, info, warn};
+
+use crate::config::{Repo, Retry};
+use crate::git::Git;
+use crate::issue::Reporter;
+use crate::subject::commit_subject;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    Nothing,
+    Pushed { subject: Option<String> },
+    NeedsHuman,
+    Unreachable,
+}
+
+impl Outcome {
+    pub fn is_failure(&self) -> bool {
+        matches!(self, Outcome::NeedsHuman | Outcome::Unreachable)
+    }
+}
+
+pub trait Sleeper: Send + Sync {
+    fn sleep(&self, delay: Duration);
+}
+
+pub struct ThreadSleeper;
+
+impl Sleeper for ThreadSleeper {
+    fn sleep(&self, delay: Duration) {
+        std::thread::sleep(delay);
+    }
+}
+
+fn is_rejection(stderr: &str) -> bool {
+    let stderr = stderr.to_lowercase();
+    [
+        "rejected",
+        "fetch first",
+        "non-fast-forward",
+        "failed to push some refs",
+    ]
+    .iter()
+    .any(|marker| stderr.contains(marker))
+}
+
+pub fn sync_repo(
+    git: &Git,
+    repo: &Repo,
+    retry: &Retry,
+    reporter: &Reporter,
+    sleeper: &dyn Sleeper,
+) -> Outcome {
+    match try_sync(git, repo, retry, sleeper) {
+        Ok((outcome, last_error)) => {
+            if outcome.is_failure() {
+                error!("{}: {last_error}", git.dir().display());
+                reporter.report(git, &repo.remote, &last_error);
+            }
+            outcome
+        }
+        Err(message) => {
+            error!("{}: {message}", git.dir().display());
+            reporter.report(git, &repo.remote, &message);
+            Outcome::Unreachable
+        }
+    }
+}
+
+fn try_sync(
+    git: &Git,
+    repo: &Repo,
+    retry: &Retry,
+    sleeper: &dyn Sleeper,
+) -> Result<(Outcome, String), String> {
+    let branch = git.branch().map_err(|e| e.to_string())?;
+    let mut set_upstream = !git.has_upstream();
+    let dirty = !git.status_porcelain().is_empty();
+    // Without an upstream the branch has never been published, so there is
+    // always something to push even when `@{upstream}..HEAD` cannot be asked.
+    let unpushed = set_upstream || !git.unpushed().is_empty();
+    if !dirty && !unpushed {
+        return Ok((Outcome::Nothing, String::new()));
+    }
+
+    let mut subject = None;
+    git.add_all().map_err(|e| e.to_string())?;
+    let staged = git.staged_files();
+    if !staged.is_empty() {
+        let message = commit_subject(&staged);
+        let out = git.commit(&message).map_err(|e| e.to_string())?;
+        if !out.success {
+            return Err(format!("commit failed: {}", out.message()));
+        }
+        subject = Some(message);
+    }
+
+    let mut delay = retry.base;
+    let mut last_error = String::new();
+    for attempt in 1..=retry.attempts {
+        let out = git
+            .push(&repo.remote, &branch, set_upstream)
+            .map_err(|e| e.to_string())?;
+        if out.success {
+            match &subject {
+                Some(s) => info!("{}: pushed `{s}`", git.dir().display()),
+                None => info!("{}: pushed already-committed work", git.dir().display()),
+            }
+            return Ok((Outcome::Pushed { subject }, String::new()));
+        }
+        last_error = out.message();
+
+        if is_rejection(&last_error) {
+            if !repo.pull {
+                return Ok((Outcome::NeedsHuman, last_error));
+            }
+            let pull = git
+                .pull_rebase(&repo.remote, &branch)
+                .map_err(|e| e.to_string())?;
+            if !pull.success {
+                last_error = pull.message();
+                // Leave no half-finished rebase behind: whoever fixes this by
+                // hand should find an ordinary working tree.
+                if let Err(e) = git.rebase_abort() {
+                    warn!("{}: rebase --abort failed: {e}", git.dir().display());
+                }
+                return Ok((Outcome::NeedsHuman, last_error));
+            }
+            set_upstream = false;
+            continue;
+        }
+
+        if attempt < retry.attempts {
+            sleeper.sleep(delay);
+            delay = (delay * 2).min(retry.max);
+        }
+    }
+    Ok((Outcome::Unreachable, last_error))
+}
