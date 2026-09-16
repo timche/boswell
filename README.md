@@ -27,11 +27,14 @@ max = "5m"          # cap on a single delay
 path = "~/docs"
 debounce = "5s"     # quiet time after the last change before a sync
 remote = "origin"
-pull = true         # on a rejected push, pull --rebase --autostash then push again
+pull = true         # rebase onto the remote before pushing, and on the periodic fetch
 recheck = "10m"     # while commits remain unpushed, retry the push this often even with no file changes
+fetch_interval = "1m"  # fetch and rebase onto the remote this often, even with no local changes; "0s" disables
 ```
 
-`[retry]` is global; `debounce`, `remote`, `pull` and `recheck` are per repository. A config listing no repositories, or a path that is not a git work tree, is rejected at startup.
+`[retry]` is global; `debounce`, `remote`, `pull`, `recheck` and `fetch_interval` are per repository. A config listing no repositories, or a path that is not a git work tree, is rejected at startup.
+
+With `pull` on, every sync pass fetches first and rebases onto the remote before it pushes, so what another machine wrote arrives before what this one wrote goes up; local changes are committed first, so the rebase runs over a checkpoint rather than over half-written work. The daemon also runs that pass on `fetch_interval` with nothing changed locally, which is how a second machine's pushes reach this one. After a rebase conflict it stops pulling that repository on the interval until the `Auto-sync failed` issue is closed, so it does not re-run a rebase that can only conflict again.
 
 ## Run
 
