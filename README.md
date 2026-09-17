@@ -10,6 +10,12 @@ Named for James Boswell, who followed Samuel Johnson around writing down everyth
 mise use -g github:timche/boswell
 ```
 
+mise hides releases younger than a day by default, so a release cut today is not offered by `mise upgrade` until tomorrow. Every completed change to boswell is released the same day; to pick releases up as they land, exclude it from that gate:
+
+```sh
+mise settings set minimum_release_age_excludes github:timche/boswell
+```
+
 ## Configure
 
 `$XDG_CONFIG_HOME/boswell/config.toml`, or `~/.config/boswell/config.toml`. Everything but `[[repo]].path` has a default, and every value below is shown at its default.
