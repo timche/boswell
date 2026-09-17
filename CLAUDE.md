@@ -16,4 +16,5 @@ A daemon that watches git repositories and commits and pushes what changes. `doc
 
 ## Shipping
 
-- No pull requests. Merge a finished, reviewed branch into `main` with a fast-forward and push. Release by tagging as above.
+- No pull requests. Merge a finished, reviewed branch into `main` with a fast-forward and push.
+- Every completed change is released straight away: bump `version` in `Cargo.toml` (patch for a fix, minor for new behaviour or config), commit, tag `v<version>`, push the commit and the tag. Do not leave main ahead of the last tag.
