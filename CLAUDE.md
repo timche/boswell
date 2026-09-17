@@ -13,3 +13,7 @@ A daemon that watches git repositories and commits and pushes what changes. `doc
 
 - `src/sync.rs` is one sync pass: add, commit, push with retry, and the three push outcomes. `src/daemon.rs` watches and debounces and calls it. `src/issue.rs` files the `Auto-sync failed` issue. `src/subject.rs` is the commit subject.
 - `tests/support/mod.rs` builds a temporary repository with a bare remote and a stub GitHub API; every integration test starts from it.
+
+## Shipping
+
+- No pull requests. Merge a finished, reviewed branch into `main` with a fast-forward and push. Release by tagging as above.
