@@ -16,7 +16,13 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # macOS watches with FSEvents where Linux watches with inotify, and clippy
+    # runs per OS because the code that picks between them is behind a cfg.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
