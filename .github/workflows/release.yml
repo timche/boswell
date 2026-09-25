@@ -96,3 +96,12 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --generate-notes \
             assets/*
+
+  # The tap's formula points at the release's assets, so it is written once they
+  # exist.
+  tap:
+    needs: release
+    uses: ./.github/workflows/tap.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

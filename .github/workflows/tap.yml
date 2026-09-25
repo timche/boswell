@@ -1,0 +1,37 @@
+name: Tap
+
+# Called by the release workflow once the release exists, since the formula
+# points at the release's own asset URLs. Dispatch it by hand to rebuild the
+# formula for a tag that is already released, which is a no-op when nothing
+# about it changed.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The released tag to write into the formula, such as v0.2.1
+        required: true
+        type: string
+
+jobs:
+  formula:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # A deploy key rather than a token: it reaches the tap and nothing else,
+      # and no personal account has to stay in the loop.
+      - name: Update the formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          key=$(mktemp)
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          scripts/update-tap-formula.sh "${{ inputs.tag }}"
