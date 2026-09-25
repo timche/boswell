@@ -152,6 +152,14 @@ fn hostname() -> String {
             }
         }
     }
+    // macOS has neither file, and the issue naming no machine is the one thing
+    // a person reading it needs most.
+    if let Ok(out) = std::process::Command::new("hostname").output() {
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !name.is_empty() {
+            return name;
+        }
+    }
     "an unknown host".to_string()
 }
 
