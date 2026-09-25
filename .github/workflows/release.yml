@@ -8,11 +8,19 @@ permissions:
   contents: write
 
 env:
-  TARGET: x86_64-unknown-linux-musl
+  CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -21,19 +29,22 @@ jobs:
       - uses: jdx/mise-action@v4
 
       # ring compiles C, so a musl build needs a musl-targeted C compiler.
-      - run: |
+      - if: runner.os == 'Linux'
+        run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      - run: rustup target add "$TARGET"
+      - run: rustup target add "${{ matrix.target }}"
 
-      - run: cargo build --release --locked --target "$TARGET"
+      - run: cargo build --release --locked --target "${{ matrix.target }}"
 
       # A dynamically linked binary would still build and still pass tests here,
-      # and only fail on the machines it is installed to.
+      # and only fail on the machines it is installed to. Only musl claims to be
+      # static; the darwin binary links libSystem like everything else on macOS.
       - name: Verify the binary is static
+        if: runner.os == 'Linux'
         run: |
-          bin="target/$TARGET/release/boswell"
+          bin="target/${{ matrix.target }}/release/boswell"
           ldd_out=$(ldd "$bin" 2>&1 || true)
           file_out=$(file -b "$bin")
           case "$ldd_out$file_out" in
@@ -47,16 +58,41 @@ jobs:
           esac
 
       # mise's github backend picks an asset by matching OS and architecture in
-      # its name, so the target triple has to stay in it.
+      # its name, so the target triple has to stay in it. macOS has no
+      # sha256sum, only shasum.
       - name: Package
         run: |
-          asset="boswell-$TARGET.tar.gz"
-          tar -czf "$asset" -C "target/$TARGET/release" boswell
-          sha256sum "$asset" > "$asset.sha256"
+          asset="boswell-${{ matrix.target }}.tar.gz"
+          tar -czf "$asset" -C "target/${{ matrix.target }}/release" boswell
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" > "$asset.sha256"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: boswell-${{ matrix.target }}
+          path: |
+            boswell-${{ matrix.target }}.tar.gz
+            boswell-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+
+  # One release for both targets, so neither build races the other to create it.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: assets
+          merge-multiple: true
 
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          asset="boswell-$TARGET.tar.gz"
-          gh release create "$GITHUB_REF_NAME" --generate-notes "$asset" "$asset.sha256"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --generate-notes \
+            assets/*
