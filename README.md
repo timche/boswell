@@ -7,10 +7,16 @@ Named for James Boswell, who followed Samuel Johnson around writing down everyth
 ## Install
 
 ```sh
+brew install timche/tap/boswell
+```
+
+The formula in [timche/homebrew-tap](https://github.com/timche/homebrew-tap) installs the release binary and is updated by every release. mise installs the same binaries straight from the release, for a machine that would rather not have Homebrew:
+
+```sh
 mise use -g github:timche/boswell
 ```
 
-Every release carries a static x86-64 Linux binary and an Apple Silicon macOS one, and that is what mise picks between. Anywhere else — another Linux architecture, an Intel Mac, a BSD — means building from source against the toolchain `mise.toml` pins: `cargo build --release`.
+Every release carries a static x86-64 Linux binary and an Apple Silicon macOS one, and both routes pick between those two. Anywhere else — another Linux architecture, an Intel Mac, a BSD — means building from source against the toolchain `mise.toml` pins: `cargo build --release`.
 
 ## Configure
 
@@ -46,7 +52,7 @@ A single pass waits out the whole retry ladder against an unreachable remote —
 
 ### As a service
 
-boswell stays in the foreground and exits non-zero when a watcher dies rather than running blind, so whatever starts it has to be what restarts it: a systemd user unit with `Restart=on-failure` on Linux, a launchd LaunchAgent on macOS. Give either one mise's shim rather than a bare `boswell`, because neither starts from a shell that has activated mise and the shim resolves the pinned version without one.
+boswell stays in the foreground and exits non-zero when a watcher dies rather than running blind, so whatever starts it has to be what restarts it: a systemd user unit with `Restart=on-failure` on Linux, a launchd LaunchAgent on macOS. Give either one an absolute path rather than a bare `boswell`, because neither starts from a shell that has a PATH: `/opt/homebrew/bin/boswell` for a Homebrew install, or mise's shim for a mise one, which resolves the pinned version without an activated shell.
 
 The agent goes in `~/Library/LaunchAgents/io.github.timche.boswell.plist`; launchd does not expand `~` inside it, so the paths are spelled out.
 
@@ -59,7 +65,7 @@ The agent goes in `~/Library/LaunchAgents/io.github.timche.boswell.plist`; launc
   <string>io.github.timche.boswell</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/you/.local/share/mise/shims/boswell</string>
+    <string>/opt/homebrew/bin/boswell</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
