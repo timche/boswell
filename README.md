@@ -10,6 +10,8 @@ Named for James Boswell, who followed Samuel Johnson around writing down everyth
 mise use -g github:timche/boswell
 ```
 
+Every release carries a static x86-64 Linux binary and an Apple Silicon macOS one, and that is what mise picks between. Anywhere else — another Linux architecture, an Intel Mac, a BSD — means building from source against the toolchain `mise.toml` pins: `cargo build --release`.
+
 ## Configure
 
 `$XDG_CONFIG_HOME/boswell/config.toml`, or `~/.config/boswell/config.toml`. Everything but `[[repo]].path` has a default, and every value below is shown at its default.
@@ -41,6 +43,39 @@ With `pull` on, every sync pass fetches first and rebases onto the remote before
 `boswell` watches every configured repository until stopped. `boswell once` runs a single sync pass over all of them and exits non-zero if any ended in failure, which is what a backstop timer would call. Both take `--config PATH`. Logging goes to stderr at info level; `RUST_LOG` overrides it.
 
 A single pass waits out the whole retry ladder against an unreachable remote — a few minutes at the defaults, plus the time each push spends timing out — so a timer unit calling `boswell once` wants a `TimeoutStartSec` longer than that, or a shorter `[retry]`.
+
+### As a service
+
+boswell stays in the foreground and exits non-zero when a watcher dies rather than running blind, so whatever starts it has to be what restarts it: a systemd user unit with `Restart=on-failure` on Linux, a launchd LaunchAgent on macOS. Give either one mise's shim rather than a bare `boswell`, because neither starts from a shell that has activated mise and the shim resolves the pinned version without one.
+
+The agent goes in `~/Library/LaunchAgents/io.github.timche.boswell.plist`; launchd does not expand `~` inside it, so the paths are spelled out.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.timche.boswell</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/.local/share/mise/shims/boswell</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Restart on a non-zero exit, and only on one. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/boswell.log</string>
+</dict>
+</plist>
+```
+
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.timche.boswell.plist` loads it, `bootout` in place of `bootstrap` unloads it, and the log is where the stderr above lands.
 
 ## When a push cannot land
 

@@ -4,10 +4,10 @@ A daemon that watches git repositories and commits and pushes what changes. `doc
 
 ## Working here
 
-- Rust is pinned in `mise.toml`; `mise install` brings rustfmt and clippy with it. Before finishing: `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. CI runs the same three.
+- Rust is pinned in `mise.toml`; `mise install` brings rustfmt and clippy with it. Before finishing: `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. CI runs the same three on Linux and macOS, on every branch push, which is the only way to check the FSEvents half of the watcher from a Linux machine.
 - Shell out to `git`, never a git library. No async runtime. Keep the dependency list to what the design names.
 - Commit subjects are lowercase and imperative and say what changed and why it matters, like the history.
-- A release is a `v*` tag: bump `version` in `Cargo.toml` first, then tag and push. The workflow builds the static musl binary that `github:timche/boswell` installs.
+- A release is a `v*` tag: bump `version` in `Cargo.toml` first, then tag and push. The workflow builds the two binaries that `github:timche/boswell` installs, static musl for x86-64 Linux and Apple Silicon for macOS, and one job downstream of both creates the release.
 
 ## Layout
 
