@@ -26,7 +26,10 @@ pub struct Fixture {
 impl Fixture {
     pub fn new() -> Fixture {
         let dir = TempDir::new().expect("tempdir");
-        let root = dir.path().to_path_buf();
+        // The canonical spelling, because that is what the watcher logs and
+        // what FSEvents puts in its events: on macOS the tempdir sits under
+        // `/var/folders`, a symlink to `/private/var/folders`.
+        let root = dir.path().canonicalize().expect("canonicalize tempdir");
         let fixture = Fixture {
             remote: root.join("remote.git"),
             work: root.join("work"),

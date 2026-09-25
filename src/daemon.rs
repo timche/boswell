@@ -63,13 +63,22 @@ pub fn once(config: &Config) -> bool {
 }
 
 fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
+    // FSEvents reports canonical paths, so a root reached through a symlink
+    // comes back spelled the other way: `/var/folders/x` as
+    // `/private/var/folders/x`. The `.git` prefix below has to be the spelling
+    // the events arrive in or nothing is filtered, and every pass's own writes
+    // under `.git` start the next one, for ever.
+    let root = repo
+        .path
+        .canonicalize()
+        .map_err(|e| format!("cannot watch {}: {e}", repo.path.display()))?;
     let (tx, rx) = channel();
     let mut debouncer = new_debouncer(COALESCE, None, tx)
         .map_err(|e| format!("cannot watch {}: {e}", repo.path.display()))?;
     debouncer
-        .watch(&repo.path, RecursiveMode::Recursive)
+        .watch(&root, RecursiveMode::Recursive)
         .map_err(|e| format!("cannot watch {}: {e}", repo.path.display()))?;
-    info!("watching {}", repo.path.display());
+    info!("watching {}", root.display());
 
     // The catch-up pass runs after registration, not before: a write that lands
     // while it is running then queues on the channel, instead of waiting for
@@ -84,7 +93,7 @@ fn watch(repo: &Repo, retry: &Retry, reporter: &Reporter) -> Result<()> {
     let mut last_sync = Instant::now();
     let mut fetch_due = fetch_interval.and_then(|interval| last_sync.checked_add(interval));
 
-    let git_dir = repo.path.join(".git");
+    let git_dir = root.join(".git");
     loop {
         // A deadline that does not fit in an `Instant` is a configured interval
         // so long that never waking on it is the same thing.
@@ -175,7 +184,8 @@ fn is_relevant(result: DebounceEventResult, git_dir: &Path) -> bool {
         // A read is not a change, and every pass reads the whole tree: `git
         // status` and `git add` open each tracked file, which inotify reports
         // as an access. Counting those kept an idle repository running a
-        // no-op pass every debounce, for ever.
+        // no-op pass every debounce, for ever. FSEvents has no access event,
+        // so on macOS this drops nothing.
         Ok(events) => events.iter().any(|event| {
             !matches!(event.kind, EventKind::Access(_))
                 && event.paths.iter().any(|path| !under(path, git_dir))
