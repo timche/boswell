@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Every branch, not just main: there are no pull requests here, so a branch
+  # that only ran CI once it had landed would never be checked before it did.
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 
 concurrency:
